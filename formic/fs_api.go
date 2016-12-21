@@ -123,6 +123,7 @@ func (s *FileSystemAPIServer) CreateFS(ctx context.Context, r *pb.CreateFSReques
 	var fsRefByte []byte
 	var fsSysAttr FileSysAttr
 	var fsSysAttrByte []byte
+	var tsReturn int64
 
 	// Get incomming ip
 	pr, ok := peer.FromContext(ctx)
@@ -152,18 +153,24 @@ func (s *FileSystemAPIServer) CreateFS(ctx context.Context, r *pb.CreateFSReques
 		log.Error("CREATE FAILED", zap.Error(err))
 		return nil, errf(codes.Internal, "%v", err)
 	}
-	_, err = s.gstore.Write(context.Background(), pKeyA, pKeyB, cKeyA, cKeyB, timestampMicro, fsRefByte)
+	tsReturn, err = s.gstore.Write(context.Background(), pKeyA, pKeyB, cKeyA, cKeyB, timestampMicro, fsRefByte)
 	if err != nil {
 		log.Error("CREATE FAILED", zap.Error(err))
 		return nil, errf(codes.Internal, "%v", err)
 	}
+	if !(tsReturn < timestampMicro) {
+		log.Warn("Returning Timestamp GT/EQ on Group Store Write")
+	}
 	// write /acct/acctID				FSID						FileSysRef
 	pKey = fmt.Sprintf("/acct/%s", acctID)
 	pKeyA, pKeyB = murmur3.Sum128([]byte(pKey))
-	_, err = s.gstore.Write(context.Background(), pKeyA, pKeyB, cKeyA, cKeyB, timestampMicro, fsRefByte)
+	tsReturn, err = s.gstore.Write(context.Background(), pKeyA, pKeyB, cKeyA, cKeyB, timestampMicro, fsRefByte)
 	if err != nil {
 		log.Error("CREATE FAILED", zap.Error(err))
 		return nil, errf(codes.Internal, "%v", err)
+	}
+	if !(tsReturn < timestampMicro) {
+		log.Error("WARNING", zap.String("Returning Timestamp GT/EQ on Group Store Write", str(tsReturn)))
 	}
 	// Write file system attributes
 	// write /fs/FSID						name						FileSysAttr
@@ -178,10 +185,13 @@ func (s *FileSystemAPIServer) CreateFS(ctx context.Context, r *pb.CreateFSReques
 		log.Error("CREATE FAILED", zap.Error(err))
 		return nil, errf(codes.Internal, "%v", err)
 	}
-	_, err = s.gstore.Write(context.Background(), pKeyA, pKeyB, cKeyA, cKeyB, timestampMicro, fsSysAttrByte)
+	tsReturn, err = s.gstore.Write(context.Background(), pKeyA, pKeyB, cKeyA, cKeyB, timestampMicro, fsSysAttrByte)
 	if err != nil {
 		log.Error("CREATE FAILED", zap.String("type", "GroupStoreWrite"), zap.Error(err))
 		return nil, errf(codes.Internal, "%v", err)
+	}
+	if !(tsReturn < timestampMicro) {
+		log.Warn(zap.String("Returning Timestamp GT/EQ on Group Store Write"))
 	}
 
 	uuID, err := uuid.FromString(fsID)
@@ -240,10 +250,13 @@ func (s *FileSystemAPIServer) CreateFS(ctx context.Context, r *pb.CreateFSReques
 	}
 
 	// Write root entry
-	_, err = s.vstore.Write(context.Background(), vKeyA, vKeyB, timestampMicro, blkdata)
+	tsReturn, err = s.vstore.Write(context.Background(), vKeyA, vKeyB, timestampMicro, blkdata)
 	if err != nil {
 		log.Error("CREATE FAILED", zap.Error(err))
 		return nil, errf(codes.Internal, "%v", err)
+	}
+	if !(tsReturn < timestampMicro) {
+		log.Warn(zap.String("Returning Timestamp GT/EQ on Value Store Write"))
 	}
 
 	// Return File System UUID
@@ -270,7 +283,7 @@ func (s *FileSystemAPIServer) ShowFS(ctx context.Context, r *pb.ShowFSRequest) (
 		s.log.Info("SHOW FAILED", zap.String("src", srcAddr), zap.String("error", "PermissionDenied"))
 		return nil, errf(codes.PermissionDenied, "%v", "Invalid Token")
 	}
-	log := s.log.With(zap.String("src", srcAddr), zap.String("acct", acctID), zap.String("fsid", r.FSid))
+	log = s.log.With(zap.String("src", srcAddr), zap.String("acct", acctID), zap.String("fsid", r.FSid))
 
 	var fs FileSysMeta
 	var value []byte
@@ -600,6 +613,7 @@ func (s *FileSystemAPIServer) UpdateFS(ctx context.Context, r *pb.UpdateFSReques
 	var fsRef FileSysRef
 	var fsSysAttr FileSysAttr
 	var fsSysAttrByte []byte
+	var tsReturn int64
 	srcAddr := ""
 	// Get incomming ip
 	pr, ok := peer.FromContext(ctx)
@@ -658,10 +672,13 @@ func (s *FileSystemAPIServer) UpdateFS(ctx context.Context, r *pb.UpdateFSReques
 		return nil, errf(codes.Internal, "%v", err)
 	}
 	timestampMicro := brimtime.TimeToUnixMicro(time.Now())
-	_, err = s.gstore.Write(context.Background(), pKeyA, pKeyB, cKeyA, cKeyB, timestampMicro, fsSysAttrByte)
+	tsReturn, err = s.gstore.Write(context.Background(), pKeyA, pKeyB, cKeyA, cKeyB, timestampMicro, fsSysAttrByte)
 	if err != nil {
 		log.Error("UPDATE FAILED", zap.Error(err))
 		return nil, errf(codes.Internal, "%v", err)
+	}
+	if !(tsReturn < timestampMicro) {
+		log.Warning(zap.String("Returning Timestamp GT/EQ on Group Store Write"))
 	}
 
 	// return message
@@ -678,6 +695,7 @@ func (s *FileSystemAPIServer) GrantAddrFS(ctx context.Context, r *pb.GrantAddrFS
 	var value []byte
 	var addrData AddrRef
 	var addrByte []byte
+	var tsReturn int64
 	srcAddr := ""
 	srcAddrIP := ""
 
@@ -735,10 +753,13 @@ func (s *FileSystemAPIServer) GrantAddrFS(ctx context.Context, r *pb.GrantAddrFS
 		log.Error("GRANT FAILED", zap.Error(err))
 		return nil, errf(codes.Internal, "%v", err)
 	}
-	_, err = s.gstore.Write(context.Background(), pKeyA, pKeyB, cKeyA, cKeyB, timestampMicro, addrByte)
+	tsReturn, err = s.gstore.Write(context.Background(), pKeyA, pKeyB, cKeyA, cKeyB, timestampMicro, addrByte)
 	if err != nil {
 		log.Error("GRANT FAILED", zap.Error(err))
 		return nil, errf(codes.Internal, "%v", err)
+	}
+	if !(tsReturn < timestampMicro) {
+		log.Warning(zap.String("Returning Timestamp GT/EQ on Group Store Write"))
 	}
 
 	// return Addr was Granted
